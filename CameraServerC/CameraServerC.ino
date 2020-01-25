@@ -14,6 +14,7 @@ void setup() {
   M5.begin();
   //Serial.begin(115200);
   //Serial.setTimeout(10);
+  M5.Axp.ScreenBreath(8);
 
   // M5StickV
   int baud = 1500000; // 115200 1500000 3000000 4500000
@@ -390,7 +391,7 @@ void update_display()
 {
   M5.Lcd.fillScreen(BLACK);
   M5.Lcd.setRotation(3);
-  M5.Lcd.setTextFont(1);
+  M5.Lcd.setTextFont(2);
   M5.Lcd.setTextSize(1);
   M5.Lcd.setTextColor(WHITE, BLACK);
 
@@ -408,14 +409,14 @@ void update_display()
   );
 
   IPAddress ipAddress = WiFi.localIP();
-  M5.Lcd.printf("IPAddr=%s\n", ipAddress.toString().c_str());
+  M5.Lcd.printf("%s\n", ipAddress.toString().c_str());
 
   static unsigned long prev_ms = 0;
   static int prev_counter = 0;
   if(0<prev_ms){
     float fps = 1000.0 * (image_counter-prev_counter) / (millis()-prev_ms);
-    Serial.printf("fps=%5.2f\n", fps);
-    M5.Lcd.printf("fps=%5.2f\n", fps);
+    Serial.printf("fps=%.2f\n", fps);
+    M5.Lcd.printf("fps=%.2f\n", fps);
   }
   prev_counter = image_counter;
   prev_ms = millis();

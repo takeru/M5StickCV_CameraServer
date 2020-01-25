@@ -1,4 +1,4 @@
-import sensor, image, time, ure, uos, lcd, gc, ubinascii
+import sensor, image, time, ure, uos, lcd, gc, ubinascii, pmu
 from Maix import GPIO
 from fpioa_manager import fm, board_info
 from machine import UART
@@ -15,15 +15,30 @@ class App():
         baud = 1500000 # 115200 1500000 3000000 4500000
         self.uart = UART(UART.UART2, baud, 8, 0, 0, timeout=1000, read_buf_len=4096)
 
+        fm.register(board_info.LED_W, fm.fpioa.GPIO3)
+        fm.register(board_info.LED_R, fm.fpioa.GPIO4)
+        fm.register(board_info.LED_G, fm.fpioa.GPIO5)
+        fm.register(board_info.LED_B, fm.fpioa.GPIO6)
+        self.gpio_led_w = GPIO(GPIO.GPIO3, GPIO.OUT)
+        self.gpio_led_r = GPIO(GPIO.GPIO4, GPIO.OUT)
+        self.gpio_led_g = GPIO(GPIO.GPIO5, GPIO.OUT)
+        self.gpio_led_b = GPIO(GPIO.GPIO6, GPIO.OUT)
+        self.gpio_led_w.value(1)
+        self.gpio_led_r.value(1)
+        self.gpio_led_g.value(1)
+        self.gpio_led_b.value(1)
+
         self.img_seq = 0
         self.counter = 0
+        self.light_on_ms = None
         self.sensor_reset("RGB565", "QQVGA")
-        self.display = False
-        if self.devicename()=="M5StickV":
-            self.display = True
+        self._devicename = self.devicename()
         self.update_display(init=True)
 
     def loop(self):
+        gc.collect()
+        self.light_ctrl(False)
+
         self.counter += 1
         line = self.readLineFromC()
 
@@ -49,6 +64,7 @@ class App():
             quality = int(m.group(2))
             if format=="JPEG":
                 self.img_seq += 1
+                self.light_ctrl(True)
                 self.img = sensor.snapshot()
                 if False:
                     self.img.draw_rectangle(0, 0, 150, 50, color=(128,128,128), fill=True)
@@ -74,8 +90,6 @@ class App():
             msg = m.group(1)
             self.sendStringToC("cmd=PONG msg=%s\n" % (msg))
 
-        gc.collect()
-
     def sensor_reset(self, pixformat, framesize):
         sensor.reset()
         if pixformat=="RGB565":
@@ -90,6 +104,25 @@ class App():
         if framesize=="QQVGA":
             sensor.set_framesize(sensor.QQVGA)
         sensor.skip_frames(time=100)
+
+    def light_ctrl(self, on):
+        if on:
+            if not self.light_on_ms:
+                # ON
+                if self._devicename=="M5StickV":
+                    self.gpio_led_w.value(0)
+                elif self._devicename=="UnitV":
+                    pass
+            self.light_on_ms = time.ticks_ms()
+        else:
+            if self.light_on_ms and self.light_on_ms + 2000 <= time.ticks_ms():
+                # OFF
+                if self._devicename=="M5StickV":
+                    self.gpio_led_w.value(1)
+                elif self._devicename=="UnitV":
+                    pass
+                self.light_on_ms = None
+
 
 
     def sendDataToC(self, data):
@@ -126,12 +159,14 @@ class App():
             return "M5StickV"
 
     def update_display(self, init=False):
-        if not self.display:
+        if self._devicename != "M5StickV":
             return
         if init:
+            axp192 = pmu.axp192()
+            axp192.setScreenBrightness(8)
             lcd.init(freq=40000000)
             lcd.direction(lcd.YX_LRUD)
-        lcd.clear(lcd.CYAN)
-        lcd.draw_string(10, 10, "CameraServerV", lcd.BLACK, lcd.CYAN)
+        lcd.clear(lcd.BLACK)
+        lcd.draw_string(10, 10, "CameraServerV", lcd.WHITE, lcd.BLACK)
 
 App().main()
