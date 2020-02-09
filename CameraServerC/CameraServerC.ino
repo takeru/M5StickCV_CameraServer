@@ -3,7 +3,6 @@
 #include <Arduino_CRC32.h>
 #include "esp_http_server.h"
 #include <WiFi.h>
-#include <Preferences.h>
 
 HardwareSerial serial_ext(2); // Serial from/to V via GROVE
 Arduino_CRC32 crc32;
@@ -32,21 +31,6 @@ void setup() {
     }
   }
   startCameraServer();
-
-  while(1){
-    pingpong();
-
-    sendStringToV("﻿cmd=RESET-REQ pixformat=RGB565 framesize=QQVGA\n");
-    String line = readLineFromV_wait(10*1000);
-    String resp = extract_string(line, "cmd");
-    if(resp=="RESET-RESP"){
-      String result = extract_string(line, "result");
-      if(result == "OK"){
-        break;
-      }
-      delay(1);
-    }
-  }
 }
 
 void loop() {
@@ -66,11 +50,28 @@ void loop() {
   }
 }
 
-bool get_image_buffer(uint8_t **p_buffer, size_t *p_size)
+void reset_sensor(const char* framesize)
+{
+  while(1){
+    pingpong();
+    sendStringToV("﻿cmd=RESET-REQ pixformat=RGB565 framesize=%s\n", framesize);
+    String line = readLineFromV_wait(10*1000);
+    String resp = extract_string(line, "cmd");
+    if(resp=="RESET-RESP"){
+      String result = extract_string(line, "result");
+      if(result == "OK"){
+        break;
+      }
+      delay(1);
+    }
+  }
+}
+
+bool get_image_buffer(uint8_t **p_buffer, size_t *p_size, int quality)
 {
   String line;
   bool result = true;
-  sendStringToV("cmd=SNAPSHOT-REQ format=JPEG quality=80\n");
+  sendStringToV("cmd=SNAPSHOT-REQ format=JPEG quality=%d\n", quality);
   line = readLineFromV_wait(5*1000);
   if(extract_string(line, "cmd") != "SNAPSHOT-RESP"){
     pingpong();
@@ -266,12 +267,12 @@ float extract_float(String s, char* key)
   return atof(extract_string(s, key).c_str());
 }
 
-
+// https://randomnerdtutorials.com/esp32-cam-video-streaming-web-server-camera-home-assistant/
 #define PART_BOUNDARY "aaaaaaaaaaaaaaaa"
 static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
-static const char* _INDEX_HTML = "<img src='/mjpg?framesize=TODO&quality=TODO' />";
+static const char* _INDEX_HTML = "<img src='/mjpg?framesize=QQVGA&quality=60' />";
 
 httpd_handle_t httpd = NULL;
 
@@ -291,13 +292,32 @@ static esp_err_t mjpg_handler(httpd_req_t *req){
   uint8_t * _jpg_buf = NULL;
   char * part_buf[64];
 
+  #define VAL_SIZE 8
+  char val_buf_framesize[VAL_SIZE];
+  char val_buf_quality[VAL_SIZE];
+  strcpy(val_buf_framesize, "QQVGA");
+  strcpy(val_buf_quality, "50");
+  size_t query_len = httpd_req_get_url_query_len(req);
+  if(0<query_len){
+    query_len++;
+    char* query_buf = (char*)malloc(query_len);
+    res = httpd_req_get_url_query_str(req, query_buf, query_len);
+    if(res == ESP_OK){
+      httpd_query_key_value(query_buf, "framesize", val_buf_framesize, VAL_SIZE);
+      httpd_query_key_value(query_buf, "quality",   val_buf_quality,   VAL_SIZE);
+    }
+    free(query_buf);
+  }
+  reset_sensor(val_buf_framesize);
+  int quality = atoi(val_buf_quality);
+
   res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
   if(res != ESP_OK){
     return res;
   }
 
   while(true){
-    bool ok = get_image_buffer(&_jpg_buf, &_jpg_buf_len);
+    bool ok = get_image_buffer(&_jpg_buf, &_jpg_buf_len, quality);
     if(!ok){ res = ESP_FAIL; }
     if(res == ESP_OK){
       size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, _jpg_buf_len);
@@ -349,18 +369,7 @@ bool wifi_connect(int timeout_ms)
   WiFi.macAddress(mac);
   Serial.printf("mac: %s\n", mac_string(mac).c_str());
 
-  Preferences preferences;
-  char wifi_ssid[33];
-  char wifi_key[65];
-
-  preferences.begin("Wi-Fi", true);
-  preferences.getString("ssid", wifi_ssid, sizeof(wifi_ssid));
-  preferences.getString("key", wifi_key, sizeof(wifi_key));
-  preferences.end();
-
-  Serial.printf("wifi_ssid=%s\n", wifi_ssid);
-
-  WiFi.begin(wifi_ssid, wifi_key);
+  WiFi.begin();
   unsigned long start_ms = millis();
   bool connected = false;
   while(1){

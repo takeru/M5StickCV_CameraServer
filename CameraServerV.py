@@ -31,8 +31,8 @@ class App():
         self.img_seq = 0
         self.counter = 0
         self.light_on_ms = None
-        self.sensor_reset("RGB565", "QQVGA")
         self._devicename = self.devicename()
+        self.sensor_reset("RGB565", "QVGA")
         self.update_display(init=True)
 
     def loop(self):
@@ -103,7 +103,7 @@ class App():
             sensor.set_framesize(sensor.QVGA)
         if framesize=="QQVGA":
             sensor.set_framesize(sensor.QQVGA)
-        sensor.skip_frames(time=100)
+        sensor.skip_frames()
 
     def light_ctrl(self, on):
         if on:
